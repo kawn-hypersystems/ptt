@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoicePulse - PTT & Ephemeral Chat Hub</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0f172a',
+                        cardbg: '#1e293b',
+                        accent: '#6366f1',
+                        accenthover: '#4f46e5'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .speaking-ring {
+            animation: pulse-ring 1.5s infinite ease-in-out;
+        }
+        @keyframes wave {
+            0%, 100% { height: 8px; }
+            50% { height: 36px; }
+        }
+        .wave-bar {
+            animation: wave 1.2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 h-screen flex flex-col overflow-hidden">
+
+    <!-- Custom Modal for Notifications / Password Prompt -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden backdrop-blur-sm">
+        <div id="modal-box" class="bg-cardbg border border-slate-700 rounded-2xl p-6 w-96 max-w-[90%] shadow-2xl transform transition-all">
+            <h3 id="modal-title" class="text-xl font-bold mb-2 text-slate-100">Notice</h3>
+            <p id="modal-desc" class="text-slate-300 text-sm mb-6">Message goes here.</p>
+            <div id="modal-content" class="mb-6"></div>
+            <div id="modal-actions" class="flex justify-end gap-3">
+                <button id="modal-cancel" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-medium transition hidden">Cancel</button>
+                <button id="modal-confirm" class="px-4 py-2 bg-accent hover:bg-accenthover rounded-xl text-sm font-medium transition text-white">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-cardbg border-b border-slate-800 px-6 py-3 flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <i class="fa-solid fa-walkie-talkie text-white text-lg"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight tracking-tight text-white flex items-center gap-2">
+                    VoicePulse <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-normal">Ephemeral Hub</span>
+                </h1>
+                <p class="text-xs text-slate-400">Secure PTT & Encrypted Session Chat</p>
+            </div>
+        </div>
+
+        <!-- User Profile Pill -->
+        <div class="flex items-center gap-3">
+            <div id="user-badge-container" class="flex items-center gap-2.5 bg-slate-800/80 border border-slate-700/60 px-3.5 py-1.5 rounded-full shadow-inner">
+                <span id="user-avatar" class="text-lg">🤖</span>
+                <div class="text-left">
+                    <div id="user-name-display" class="text-xs font-semibold text-slate-200">Anonymous</div>
+                    <div class="text-[10px] text-emerald-400 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online</div>
+                </div>
+                <button onclick="openUsernameModal()" class="ml-1 text-slate-400 hover:text-white transition p-1" title="Change Username">
+                    <i class="fa-solid fa-pen text-xs"></i>
+                </button>
+            </div>
+            <button onclick="leaveRoom()" id="leave-room-btn" class="hidden px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-medium transition items-center gap-1.5">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i> Leave Room
+            </button>
+        </div>
+    </header>
+
+    <!-- Main App Container -->
+    <div class="flex-1 flex overflow-hidden">
+
+        <!-- Sidebar / Rooms List & Navigation -->
+        <aside class="w-80 bg-slate-900/60 border-r border-slate-800 flex flex-col shrink-0">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h2 class="font-semibold text-sm text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-comments text-indigo-400"></i> Rooms & Channels
+                </h2>
+                <button onclick="openCreateRoomModal()" class="w-8 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center transition shadow-md shadow-indigo-600/20" title="Create Private Room">
+                    <i class="fa-solid fa-plus text-xs"></i>
+                </button>
+            </div>
+
+            <!-- Rooms Scrollable List -->
+            <div id="rooms-list" class="flex-1 overflow-y-auto p-3 space-y-2">
+                <!-- Dynamically populated via JS -->
+            </div>
+
+            <!-- Connection Status Footer -->
+            <div class="p-3 bg-slate-950/40 border-t border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
+                <span class="flex items-center gap-2"><i class="fa-solid fa-shield-halved text-indigo-400"></i> Ephemeral Session Active</span>
+                <span id="active-room-tag" class="bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono text-[10px]">Public Lobby</span>
+            </div>
+        </aside>
+
+        <!-- Room Workspace (Active Room) -->
+        <main id="room-workspace" class="flex-1 flex flex-col bg-darkbg relative overflow-hidden">
+
+            <!-- Room Header Bar -->
+            <div class="bg-cardbg/80 backdrop-blur border-b border-slate-800 px-6 py-3.5 flex items-center justify-between z-10">
+                <div class="flex items-center gap-3">
+                    <div id="room-icon" class="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-globe"></i>
+                    </div>
+                    <div>
+                        <h2 id="current-room-title" class="font-bold text-slate-100">Public Lobby</h2>
+                        <p id="current-room-desc" class="text-xs text-slate-400">General chat & voice channel for everyone. No password required.</p>
+                    </div>
+                </div>
+
+                <!-- Tabs Switcher & Online Counter -->
+                <div class="flex items-center gap-4">
+                    <div class="bg-slate-900 p-1 rounded-xl border border-slate-800 flex items-center gap-1">
+                        <button onclick="switchTab('ptt')" id="tab-btn-ptt" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white shadow">
+                            <i class="fa-solid fa-walkie-talkie mr-1.5"></i> Voice PTT
+                        </button>
+                        <button onclick="switchTab('chat')" id="tab-btn-chat" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">
+                            <i class="fa-solid fa-message mr-1.5"></i> Ephemeral Chat <span id="chat-badge" class="ml-1 px-1.5 py-0.2 bg-indigo-500 text-white rounded-full text-[10px]">0</span>
+                        </button>
+                        <button onclick="switchTab('users')" id="tab-btn-users" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">
+                            <i class="fa-solid fa-users mr-1.5"></i> Online (<span id="online-count">1</span>)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Contents Wrapper -->
+            <div class="flex-1 relative overflow-hidden flex">
+
+                <!-- TAB 1: PTT VOICE ROOM -->
+                <div id="tab-content-ptt" class="absolute inset-0 flex flex-col items-center justify-center p-6 transition-all duration-300">
+                    <div class="max-w-md w-full bg-cardbg border border-slate-800 rounded-3xl p-8 flex flex-col items-center shadow-2xl relative overflow-hidden">
+                        
+                        <!-- Background glow effect -->
+                        <div id="ptt-glow" class="absolute inset-0 bg-gradient-to-b from-indigo-500/10 via-transparent to-transparent opacity-0 transition-opacity duration-300 pointer-events-none"></div>
+
+                        <!-- Speaker status visualizer -->
+                        <div class="relative mb-6">
+                            <div id="ptt-ring" class="absolute -inset-4 rounded-full border-2 border-indigo-500/50 opacity-0 transition-all"></div>
+                            <div id="ptt-avatar-wrapper" class="w-28 h-28 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-5xl shadow-xl relative z-10 transition-transform">
+                                <span id="ptt-current-speaker-emoji">🎙️</span>
+                            </div>
+                        </div>
+
+                        <h3 id="ptt-status-title" class="text-lg font-bold text-slate-100 mb-1">Push-to-Talk Ready</h3>
+                        <p id="ptt-status-desc" class="text-xs text-slate-400 mb-6 text-center">Hold the button below or press <kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300 font-mono text-[10px]">Spacebar</kbd> to broadcast voice.</p>
+
+                        <!-- Audio Wave Animation Container -->
+                        <div id="wave-container" class="h-12 flex items-center justify-center gap-1.5 mb-8 opacity-20 transition-opacity">
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.1s"></div>
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.3s"></div>
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.2s"></div>
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.5s"></div>
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.2s"></div>
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.4s"></div>
+                            <div class="w-1.5 bg-indigo-500 rounded-full wave-bar" style="animation-delay: 0.1s"></div>
+                        </div>
+
+                        <!-- Big PTT Button -->
+                        <button id="ptt-button" 
+                            class="w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-95 text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/30 border border-indigo-400/30 flex items-center justify-center gap-3 transition-all select-none cursor-pointer">
+                            <i class="fa-solid fa-microphone text-xl"></i>
+                            <span id="ptt-btn-text">HOLD TO TALK (SPACEBAR)</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TAB 2: EPHEMERAL CHAT -->
+                <div id="tab-content-chat" class="absolute inset-0 flex flex-col hidden bg-darkbg">
+                    <!-- Message Log -->
+                    <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4">
+                        <!-- System notice -->
+                        <div class="flex justify-center">
+                            <span class="text-[11px] bg-slate-900 border border-slate-800 text-slate-400 px-3 py-1 rounded-full shadow-sm">
+                                <i class="fa-solid fa-triangle-exclamation mr-1 text-amber-400"></i> Ephemeral chat: Messages auto-delete when you leave or reload.
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Chat Input Form -->
+                    <div class="p-4 bg-cardbg border-t border-slate-800">
+                        <form id="chat-form" onsubmit="sendChatMessage(event)" class="flex gap-3">
+                            <input type="text" id="chat-input" placeholder="Type an ephemeral message..." autocomplete="off"
+                                class="flex-1 bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 transition shadow-inner">
+                            <button type="submit" class="px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium text-sm transition shadow-lg shadow-indigo-600/30 flex items-center gap-2">
+                                <i class="fa-solid fa-paper-plane"></i> Send
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- TAB 3: ONLINE USERS -->
+                <div id="tab-content-users" class="absolute inset-0 flex flex-col hidden p-6 overflow-y-auto bg-darkbg">
+                    <div class="max-w-2xl w-full mx-auto">
+                        <h3 class="font-bold text-slate-200 mb-4 flex items-center justify-between">
+                            <span>Connected in Room</span>
+                            <span class="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2.5 py-1 rounded-full">Simulated Multi-User Sync</span>
+                        </h3>
+                        <div id="users-list-container" class="space-y-3">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Application JavaScript Logic -->
+    <script>
+        // --- State Management ---
+        const EMOJIS = ['🦊', '🐱', '🐼', '🐨', '🦁', '🐯', '🐰', '🦄', '🐲', '🐙', '⚡', '🚀', '🎸', '🎨', '🍕', '🌟'];
+        const ADJECTIVES = ['Swift', 'Cosmic', 'Silent', 'Bold', 'Neon', 'Cyber', 'Shadow', 'Solar', 'Epic', 'Quantum', 'Hyper', 'Zen'];
+        const NOUNS = ['Falcon', 'Tiger', 'Panda', 'Wizard', 'Ninja', 'Viking', 'Ghost', 'Phoenix', 'Rider', 'Voyager', 'Spark', 'Titan'];
+
+        let currentUser = {
+            id: 'user_' + Math.random().toString(36).substring(2, 9),
+            name: '',
+            emoji: '🦊',
+            isSpeaking: false,
+            currentRoom: 'public-location'
+        };
+
+        // Rooms Data Store
+        let rooms = [
+            { id: 'public-lobby', name: 'Public Lobby', desc: 'General chat & voice channel for everyone. No password.', icon: 'fa-globe', isPrivate: false, password: '' },
+            { id: 'lounge', name: 'Chill Lounge', desc: 'Relaxed music and casual conversation.', icon: 'fa-couch', isPrivate: false, password: '' },
+            { id: 'dev-room', name: 'Developer Den', desc: 'Coding, debugging, and geeky discussions.', icon: 'fa-code', isPrivate: false, password: '' },
+            { id: 'vip-vault', name: 'VIP Vault', desc: 'Exclusive members-only secure channel.', icon: 'fa-lock', isPrivate: true, password: '123' }
+        ];
+
+        let currentRoomId = 'public-lobby';
+        let activeTab = 'ptt'; // 'ptt' | 'chat' | 'users'
+        let chatMessages = {}; // roomId -> Array of messages
+        let roomUsers = {}; // roomId -> Array of user objects
+        let unreadChatCount = {}; // roomId -> count
+
+        // Real Multi-tab Sync via BroadcastChannel
+        const bc = new BroadcastChannel('voicepulse_p2p_channel');
+
+        // --- Initialization ---
+        window.onload = function() {
+            generateRandomUsername();
+            initRoomsData();
+            renderRoomsList();
+            switchRoom('public-lobby', false);
+            setupPTTEvents();
+            setupBroadcastChannel();
+            
+            // Broadcast join
+            broadcastPresence();
+            
+            // Heartbeat / Presence ping
+            setInterval(broadcastPresence, 3000);
+            
+            // Cleanup on unload
+            window.addEventListener('beforeunload', () => {
+                bc.postMessage({ type: 'USER_LEAVE', user: currentUser, roomId: currentRoomId });
+            });
+        };
+
+        function setupBroadcastChannel() {
+            bc.onmessage = (event) => {
+                const data = event.data;
+                if (!data) return;
+
+                if (data.type === 'PRESENCE') {
+                    if (!roomUsers[data.roomId]) roomUsers[data.roomId] = [];
+                    const idx = roomUsers[data.roomId].findIndex(u => u.id === data.user.id);
+                    if (idx >= 0) {
+                        roomUsers[data.roomId][idx] = data.user;
+                    } else {
+                        roomUsers[data.roomId].push(data.user);
+                    }
+                    if (data.roomId === currentRoomId) {
+                        renderOnlineUsers();
+                    }
+                } else if (data.type === 'USER_LEAVE') {
+                    if (roomUsers[data.roomId]) {
+                        roomUsers[data.roomId] = roomUsers[data.roomId].filter(u => u.id !== data.user.id);
+                        if (data.roomId === currentRoomId) {
+                            renderOnlineUsers();
+                        }
+                    }
+                } else if (data.type === 'CHAT_MESSAGE') {
+                    if (!chatMessages[data.roomId]) chatMessages[data.roomId] = [];
+                    // Avoid duplicate messages
+                    if (!chatMessages[data.roomId].some(m => m.id === data.message.id)) {
+                        chatMessages[data.roomId].push(data.message);
+                        if (data.roomId === currentRoomId) {
+                            if (activeTab === 'chat') {
+                                renderChatMessages();
+                                scrollToBottomChat();
+                            } else {
+                                unreadChatCount[data.roomId] = (unreadChatCount[data.roomId] || 0) + 1;
+                                updateChatBadge();
+                                renderRoomsList();
+                            }
+                        }
+                    }
+                } else if (data.type === 'PTT_STATE') {
+                    if (roomUsers[data.roomId]) {
+                        const u = roomUsers[data.roomId].find(user => user.id === data.userId);
+                        if (u) {
+                            u.isSpeaking = data.isSpeaking;
+                            if (data.roomId === currentRoomId) {
+                                renderOnlineUsers();
+                                if (data.isSpeaking) {
+                                    document.getElementById('ptt-current-speaker-emoji').textContent = u.emoji;
+                                    document.getElementById('ptt-status-title').textContent = `${u.name} is speaking...`;
+                                    document.getElementById('wave-container').style.opacity = '1';
+                                    playAudioBeep(600, 0.05);
+                                } else {
+                                    document.getElementById('ptt-status-title').textContent = 'Push-to-Talk Ready';
+                                    document.getElementById('wave-container').style.opacity = '0.2';
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        function broadcastPresence() {
+            currentUser.currentRoom = currentRoomId;
+            bc.postMessage({ type: 'PRESENCE', user: currentUser, roomId: currentRoomId });
+        }
+
+        function generateRandomUsername() {
+            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+            const num = Math.floor(Math.random() * 900) + 100;
+            currentUser.name = `${adj}${noun}${num}`;
+            currentUser.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
+            updateUserProfileUI();
+        }
+
+        function updateUserProfileUI() {
+            document.getElementById('user-name-display').textContent = currentUser.name;
+            document.getElementById('user-avatar').textContent = currentUser.emoji;
+        }
+
+        function initRoomsData() {
+            rooms.forEach(room => {
+                chatMessages[room.id] = [
+                    { id: 'm1_' + room.id, sender: 'System', emoji: '🤖', text: `Welcome to ${room.name}! Real multi-tab sync active.`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), isSystem: true }
+                ];
+                roomUsers[room.id] = [];
+                unreadChatCount[room.id] = 0;
+            });
+        }
+
+        // --- Room Management & Navigation ---
+        function renderRoomsList() {
+            const container = document.getElementById('rooms-list');
+            container.innerHTML = '';
+
+            rooms.forEach(room => {
+                const isActive = room.id === currentRoomId;
+                const unread = unreadChatCount[room.id] > 0 ? `<span class="bg-indigo-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">${unreadChatCount[room.id]}</span>` : '';
+                
+                const div = document.createElement('div');
+                div.className = `p-3 rounded-2xl cursor-pointer border transition flex items-center justify-between group ${isActive ? 'bg-indigo-600/20 border-indigo-500/50 shadow-md shadow-indigo-600/10' : 'bg-cardbg/60 border-slate-800 hover:bg-slate-800/80'}`;
+                div.onclick = () => handleRoomSelect(room.id);
+
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl ${isActive ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 group-hover:text-slate-200'} flex items-center justify-center transition">
+                            <i class="fa-solid ${room.icon} text-sm"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm text-slate-200 flex items-center gap-1.5">
+                                ${room.name} ${room.isPrivate ? '<i class="fa-solid fa-lock text-[10px] text-amber-400"></i>' : ''}
+                            </div>
+                            <p class="text-[11px] text-slate-400 truncate w-36">${room.desc}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        ${unread}
+                        <i class="fa-solid fa-chevron-right text-xs text-slate-600 ${isActive ? 'text-indigo-400' : ''}"></i>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function handleRoomSelect(roomId) {
+            const room = rooms.find(r => r.id === roomId);
+            if (!room) return;
+
+            if (room.isPrivate) {
+                openPasswordModal(room);
+            } else {
+                switchRoom(roomId);
+            }
+        }
+
+        function switchRoom(roomId, clearUnread = true) {
+            const oldRoomId = currentRoomId;
+            currentRoomId = roomId;
+            if (clearUnread) unreadChatCount[roomId] = 0;
+            
+            const room = rooms.find(r => r.id === roomId);
+            
+            // Update Header info
+            document.getElementById('current-room-title').textContent = room.name;
+            document.getElementById('current-room-desc').textContent = room.desc;
+            document.getElementById('room-icon').innerHTML = `<i class="fa-solid ${room.icon}"></i>`;
+            document.getElementById('active-room-tag').textContent = room.name;
+            document.getElementById('leave-room-btn').style.display = roomId === 'public-lobby' ? 'none' : 'flex';
+
+            // Clean self from old room user list in broadcast
+            if (oldRoomId && roomUsers[oldRoomId]) {
+                roomUsers[oldRoomId] = roomUsers[oldRoomId].filter(u => u.id !== currentUser.id);
+            }
+
+            // Ensure current user is in new room users list
+            if (!roomUsers[roomId].some(u => u.id === currentUser.id)) {
+                roomUsers[roomId].push({ ...currentUser });
+            }
+
+            broadcastPresence();
+            renderRoomsList();
+            renderChatMessages();
+            renderOnlineUsers();
+            updateChatBadge();
+        }
+
+        function leaveRoom() {
+            switchRoom('public-lobby');
+        }
+
+        // --- Password Modal for Private Channels ---
+        function openPasswordModal(room) {
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+            const content = document.getElementById('modal-content');
+            const cancelBtn = document.getElementById('modal-cancel');
+            const confirmBtn = document.getElementById('modal-confirm');
+
+            title.textContent = `Protected: ${room.name}`;
+            desc.textContent = `This is a private channel. Enter the password to join. (Hint: password is "123")`;
+            
+            content.innerHTML = `
+                <input type="password" id="room-password-input" placeholder="Enter channel password" autofocus
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 shadow-inner">
+            `;
+
+            cancelBtn.classList.remove('hidden');
+            cancelBtn.onclick = closeModal;
+
+            confirmBtn.onclick = function() {
+                const passVal = document.getElementById('room-password-input').value;
+                if (passVal === room.password) {
+                    closeModal();
+                    switchRoom(room.id);
+                    showToast(`Successfully unlocked ${room.name}!`, 'success');
+                } else {
+                    showToast('Incorrect password! Try "123"', 'error');
+                }
+            };
+
+            overlay.classList.remove('hidden');
+        }
+
+        function openCreateRoomModal() {
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+            const content = document.getElementById('modal-content');
+            const cancelBtn = document.getElementById('modal-cancel');
+            const confirmBtn = document.getElementById('modal-confirm');
+
+            title.textContent = 'Create Private Channel';
+            desc.textContent = 'Setup a secure private room with custom password protection.';
+            
+            content.innerHTML = `
+                <div class="space-y-3">
+                    <input type="text" id="new-room-name" placeholder="Channel Name" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
+                    <input type="text" id="new-room-desc" placeholder="Short description" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
+                    <input type="password" id="new-room-pass" placeholder="Channel Password" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
+                </div>
+            `;
+
+            cancelBtn.classList.remove('hidden');
+            cancelBtn.onclick = closeModal;
+
+            confirmBtn.onclick = function() {
+                const name = document.getElementById('new-room-name').value.trim();
+                const description = document.getElementById('new-room-desc').value.trim();
+                const password = document.getElementById('new-room-pass').value;
+
+                if (!name) {
+                    showToast('Please enter a channel name', 'error');
+                    return;
+                }
+
+                const newId = 'room_' + Math.random().toString(36).substring(2, 7);
+                rooms.push({
+                    id: newId,
+                    name: name,
+                    desc: description || 'Custom private channel',
+                    icon: 'fa-lock',
+                    isPrivate: true,
+                    password: password || '123'
+                });
+
+                chatMessages[newId] = [{ id: 'm0', sender: 'System', emoji: '🤖', text: `Channel ${name} created securely.`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }];
+                roomUsers[newId] = [{ ...currentUser }];
+                unreadChatCount[newId] = 0;
+
+                closeModal();
+                renderRoomsList();
+                switchRoom(newId);
+                showToast(`Channel ${name} created successfully!`, 'success');
+            };
+
+            overlay.classList.remove('hidden');
+        }
+
+        function openUsernameModal() {
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+            const content = document.getElementById('modal-content');
+            const cancelBtn = document.getElementById('modal-cancel');
+            const confirmBtn = document.getElementById('modal-confirm');
+
+            title.textContent = 'Customize Profile';
+            desc.textContent = 'Choose your display name and fun emoji badge.';
+            
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-xs text-slate-400 mb-1 block">Display Name</label>
+                        <input type="text" id="custom-name-input" value="${currentUser.name}" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 mb-1 block">Emoji Badge</label>
+                        <div class="grid grid-cols-8 gap-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                            ${EMOJIS.map(e => `<button type="button" onclick="selectEmoji('${e}')" class="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-lg transition ${currentUser.emoji === e ? 'bg-indigo-600/30 border border-indigo-500' : ''}" data-emoji="${e}">${e}</button>`).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            cancelBtn.classList.remove('hidden');
+            cancelBtn.onclick = closeModal;
+
+            confirmBtn.onclick = function() {
+                const nameInput = document.getElementById('custom-name-input').value.trim();
+                if (nameInput) currentUser.name = nameInput;
+                updateUserProfileUI();
+                
+                // Update in current room users list
+                if (roomUsers[currentRoomId]) {
+                    const u = roomUsers[currentRoomId].find(user => user.id === currentUser.id);
+                    if (u) {
+                        u.name = currentUser.name;
+                        u.emoji = currentUser.emoji;
+                    }
+                }
+
+                closeModal();
+                renderOnlineUsers();
+                showToast('Profile updated successfully!', 'success');
+            };
+
+            overlay.classList.remove('hidden');
+        }
+
+        function selectEmoji(emoji) {
+            currentUser.emoji = emoji;
+            document.querySelectorAll('#modal-content button').forEach(btn => {
+                if (btn.dataset.emoji === emoji) {
+                    btn.className = 'w-8 h-8 rounded-lg bg-indigo-600/30 border border-indigo-500 flex items-center justify-center text-lg transition';
+                } else if (btn.dataset.emoji) {
+                    btn.className = 'w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-lg transition';
+                }
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.add('hidden');
+        }
+
+        function showToast(msg, type = 'success') {
+            // Simple temporary floating banner or alert notification inside modal
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+            const content = document.getElementById('modal-content');
+            const cancelBtn = document.getElementById('modal-cancel');
+            const confirmBtn = document.getElementById('modal-confirm');
+
+            title.textContent = type === 'success' ? '✨ Success' : '⚠️ Notice';
+            desc.textContent = msg;
+            content.innerHTML = '';
+            cancelBtn.classList.add('hidden');
+            confirmBtn.onclick = closeModal;
+            overlay.classList.remove('hidden');
+        }
+
+        // --- Tabs Navigation ---
+        function switchTab(tabKey) {
+            activeTab = tabKey;
+            
+            // Buttons style update
+            ['ptt', 'chat', 'users'].forEach(t => {
+                const btn = document.getElementById(`tab-btn-${t}`);
+                const content = document.getElementById(`tab-content-${t}`);
+                if (t === tabKey) {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white shadow';
+                    content.classList.remove('hidden');
+                } else {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white';
+                    content.classList.add('hidden');
+                }
+            });
+
+            if (tabKey === 'chat') {
+                unreadChatCount[currentRoomId] = 0;
+                updateChatBadge();
+                renderRoomsList();
+                scrollToBottomChat();
+            } else if (tabKey === 'users') {
+                renderOnlineUsers();
+            }
+        }
+
+        function updateChatBadge() {
+            const count = unreadChatCount[currentRoomId] || 0;
+            const badge = document.getElementById('chat-badge');
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+
+        // --- Tab 1: PTT Voice Room Simulation Logic ---
+        function setupPTTEvents() {
+            const pttBtn = document.getElementById('ptt-button');
+
+            // Mouse / Touch events
+            pttBtn.addEventListener('mousedown', startSpeaking);
+            window.addEventListener('mouseup', stopSpeaking);
+
+            pttBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startSpeaking(); });
+            window.addEventListener('touchend', stopSpeaking);
+
+            // Keyboard Spacebar PTT (if not typing in input)
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT' && !currentUser.isSpeaking) {
+                    e.preventDefault();
+                    startSpeaking();
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.code === 'Space' && currentUser.isSpeaking) {
+                    e.preventDefault();
+                    stopSpeaking();
+                }
+            });
+        }
+
+        function startSpeaking() {
+            if (currentUser.isSpeaking) return;
+            currentUser.isSpeaking = true;
+
+            const pttBtn = document.getElementById('ptt-button');
+            const pttRing = document.getElementById('ptt-ring');
+            const pttGlow = document.getElementById('ptt-glow');
+            const waveContainer = document.getElementById('wave-container');
+            const btnText = document.getElementById('ptt-btn-text');
+            const statusTitle = document.getElementById('ptt-status-title');
+            const statusDesc = document.getElementById('ptt-status-desc');
+            const avatarWrapper = document.getElementById('ptt-avatar-wrapper');
+
+            pttBtn.className = 'w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-2xl shadow-xl shadow-emerald-600/40 border border-emerald-400/40 flex items-center justify-center gap-3 transition-all select-none cursor-pointer transform scale-[0.98]';
+            btnText.textContent = 'TRANSMITTING VOICE...';
+            
+            pttRing.classList.add('speaking-ring', 'opacity-100');
+            pttGlow.classList.remove('opacity-0');
+            waveContainer.style.opacity = '1';
+            
+            statusTitle.textContent = 'You are transmitting';
+            statusDesc.textContent = 'Broadcasting voice stream to peers in room.';
+            avatarWrapper.classList.add('scale-110', 'border-emerald-500');
+
+            playAudioBeep(600, 0.1);
+            broadcastPttState(true);
+        }
+
+        function stopSpeaking() {
+            if (!currentUser.isSpeaking) return;
+            currentUser.isSpeaking = false;
+
+            const pttBtn = document.getElementById('ptt-button');
+            const pttRing = document.getElementById('ptt-ring');
+            const pttGlow = document.getElementById('ptt-glow');
+            const waveContainer = document.getElementById('wave-container');
+            const btnText = document.getElementById('ptt-btn-text');
+            const statusTitle = document.getElementById('ptt-status-title');
+            const statusDesc = document.getElementById('ptt-status-desc');
+            const avatarWrapper = document.getElementById('ptt-avatar-wrapper');
+
+            pttBtn.className = 'w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-95 text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/30 border border-indigo-400/30 flex items-center justify-center gap-3 transition-all select-none cursor-pointer';
+            btnText.textContent = 'HOLD TO TALK (SPACEBAR)';
+            
+            pttRing.classList.remove('speaking-ring', 'opacity-100');
+            pttGlow.classList.add('opacity-0');
+            waveContainer.style.opacity = '0.2';
+            
+            statusTitle.textContent = 'Push-to-Talk Ready';
+            statusDesc.textContent = 'Hold the button below or press Spacebar to broadcast voice.';
+            avatarWrapper.classList.remove('scale-110', 'border-emerald-500');
+
+            playAudioBeep(300, 0.1);
+            broadcastPttState(false);
+        }
+
+        function broadcastPttState(isSpeaking) {
+            bc.postMessage({
+                type: 'PTT_STATE',
+                userId: currentUser.id,
+                isSpeaking: isSpeaking,
+                roomId: currentRoomId
+            });
+        }
+
+        // Web Audio API simple feedback tone
+        function playAudioBeep(frequency, duration) {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = frequency;
+                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {}
+        }
+
+        // --- Tab 2: Ephemeral Chat Logic ---
+        function renderChatMessages() {
+            const container = document.getElementById('chat-messages');
+            // Keep the system info notice header
+            const messages = chatMessages[currentRoomId] || [];
+            
+            container.innerHTML = `
+                <div class="flex justify-center">
+                    <span class="text-[11px] bg-slate-900 border border-slate-800 text-slate-400 px-3 py-1 rounded-full shadow-sm">
+                        <i class="fa-solid fa-triangle-exclamation mr-1 text-amber-400"></i> Ephemeral chat: Messages auto-delete when you leave or reload.
+                    </span>
+                </div>
+            `;
+
+            messages.forEach(msg => {
+                const isSelf = msg.senderId === currentUser.id;
+                const div = document.createElement('div');
+                div.className = `flex gap-3 ${isSelf ? 'flex-row-reverse' : ''}`;
+                div.innerHTML = `
+                    <div class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-lg shrink-0 shadow">
+                        ${msg.emoji || '🤖'}
+                    </div>
+                    <div class="max-w-[70%]">
+                        <div class="flex items-center gap-2 mb-1 ${isSelf ? 'justify-end' : ''}">
+                            <span class="text-xs font-semibold text-slate-300">${escapeHtml(msg.sender)}</span>
+                            <span class="text-[10px] text-slate-500">${msg.time}</span>
+                        </div>
+                        <div class="p-3 rounded-2xl text-sm ${isSelf ? 'bg-indigo-600 text-white rounded-tr-none shadow-md shadow-indigo-600/20' : 'bg-cardbg border border-slate-800 text-slate-200 rounded-tl-none'}">
+                            ${escapeHtml(msg.text)}
+                        </div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function sendChatMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const msg = {
+                id: 'm_' + Math.random().toString(36).substring(2, 9),
+                sender: currentUser.name,
+                emoji: currentUser.emoji,
+                senderId: currentUser.id,
+                text: text,
+                time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+            };
+
+            if (!chatMessages[currentRoomId]) chatMessages[currentRoomId] = [];
+            chatMessages[currentRoomId].push(msg);
+            input.value = '';
+
+            renderChatMessages();
+            scrollToBottomChat();
+
+            // Broadcast message to other tabs/peers
+            bc.postMessage({
+                type: 'CHAT_MESSAGE',
+                roomId: currentRoomId,
+                message: msg
+            });
+        }
+
+        function scrollToBottomChat() {
+            const container = document.getElementById('chat-messages');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        // --- Tab 3: Online Users List ---
+        function renderOnlineUsers() {
+            const container = document.getElementById('users-list-container');
+            const users = roomUsers[currentRoomId] || [];
+
+            // Ensure current user is always listed
+            if (!users.some(u => u.id === currentUser.id)) {
+                users.push(currentUser);
+            }
+
+            document.getElementById('online-count').textContent = users.length;
+            container.innerHTML = '';
+
+            users.forEach(u => {
+                const isYou = u.id === currentUser.id;
+                const div = document.createElement('div');
+                div.className = 'bg-cardbg border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm';
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-2xl shadow">
+                            ${u.emoji}
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm text-slate-100 flex items-center gap-2">
+                                ${u.name} ${isYou ? '<span class="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-normal">You</span>' : ''}
+                            </div>
+                            <p class="text-xs text-emerald-400 flex items-center gap-1.5 mt-0.5">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 ${u.isSpeaking ? 'animate-ping' : ''}"></span> 
+                                ${u.isSpeaking ? 'Speaking in PTT...' : 'Connected & Listening'}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-slate-500 font-mono">
+                        ID: ${u.id.substring(0,6)}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+    </script>
+</body>
+</html>
